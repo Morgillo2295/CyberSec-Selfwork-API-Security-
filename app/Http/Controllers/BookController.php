@@ -5,12 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Book;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 class BookController extends Controller
 {
     public function index()
     {
-        $books = Book::all();
+        $books = Book::where('user_id', Auth::id())->get();
         return response()->json([
             'data' => $books,
             'links' => [
@@ -26,21 +27,23 @@ class BookController extends Controller
         ]);
     }
 
+    public function showByUser()
+    {
+        return $this->index();
+    }
+
     public function show($id)
     {
         if (!$book = Book::find($id)) {
             return response()->json(['error' => 'Book not found'], 404);
         }
 
-        // SECURE
-        // $user = $book->user()->first();
-
-        // $userFiltered['name'] = $user->name;
-        // $userFiltered['email'] = $user->email;
+        if (Auth::id() !== $book->user_id) {
+            return response()->json(['error' => 'Not authorized'], 403);
+        }
 
         return response()->json([
             'data' => $book,
-            //'user' => $userFiltered,
             'links' => [
                 'self' => [
                     'href' => url("/api/books/{$id}"),
@@ -64,9 +67,20 @@ class BookController extends Controller
 
     public function store(Request $request)
     {
-        // UNSECURE
-        // Missing Validation
-        $book = Book::create($request->all());
+        $validator = Validator::make($request->all(), [
+            'title' => 'required|string|max:255',
+            'author' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'published_year' => 'required|integer|min:1900|max:'.(date('Y') + 1),
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $book = new Book($validator->validated());
+        $book->user_id = Auth::id();
+        $book->save();
 
         return response()->json([
             'data' => $book,
@@ -99,18 +113,22 @@ class BookController extends Controller
             return response()->json(['error' => 'Book not found'], 404);
         }
 
-        // SECURE
-        if(!$user = Auth::user()){
-            return response()->json(['error' => 'Not autorised'], 401);
-        }
-        if($user->id != $book->user_id){
-            return response()->json(['error' => 'Not autorised'], 401);
+        if (!Auth::check() || Auth::id() !== $book->user_id) {
+            return response()->json(['error' => 'Not authorised'], 403);
         }
 
-        // UNSECURE
-        // Missing Validation
-        // Missing Authorization Check
-        $book->update($request->all());
+        $validator = Validator::make($request->all(), [
+            'title' => 'sometimes|required|string|max:255',
+            'author' => 'sometimes|required|string|max:255',
+            'description' => 'nullable|string',
+            'published_year' => 'sometimes|required|integer|min:1900|max:'.(date('Y') + 1),
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $book->update($validator->validated());
 
         return response()->json([
             'data' => $book,
@@ -138,15 +156,11 @@ class BookController extends Controller
         if (!$book) {
             return response()->json(['error' => 'Book not found'], 404);
         }
-        
-        if(!$user = Auth::user()){
-            return response()->json(['error' => 'Not autorised'], 401);
-        }
-        if($user->id != $book->user_id){
-            return response()->json(['error' => 'Not autorised'], 401);
+
+        if (!Auth::check() || Auth::id() !== $book->user_id) {
+            return response()->json(['error' => 'Not authorised'], 403);
         }
 
-        // UNSECURE
         $book->delete();
 
         return response()->json([
